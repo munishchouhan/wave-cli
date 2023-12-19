@@ -79,8 +79,8 @@ distributions:
       name: wave
     artifacts:
       - path: "nativeCompile-ubuntu-latest/wave"
-        transform: "wave-{{projectEffectiveVersion}}-linux-x86_64"
-        platform: linux-x86_64
+        transform: "wave-{{projectEffectiveVersion}}-macos-arm64"
+        platform: osx-aarch_64
         extraProperties:
           graalVMNativeImage: true
       - path: "nativeCompile-windows-latest/wave.exe"
@@ -91,11 +91,6 @@ distributions:
       - path: "nativeCompile-macos-latest/wave"
         transform: "wave-{{projectEffectiveVersion}}-macos-x86_64"
         platform: osx-x86_64
-        extraProperties:
-          graalVMNativeImage: true
-      - path: "nativeCompile-macos-latest-xlarge/wave"
-        transform: "wave-{{projectEffectiveVersion}}-macos-arm64"
-        platform: osx-aarch_64
         extraProperties:
           graalVMNativeImage: true
 
