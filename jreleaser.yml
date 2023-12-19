@@ -3,13 +3,14 @@ project:
   description: Wave CLI
   longDescription: Command line tool for Wave container provisioning
   website: https://github.com/seqeralabs/wave-cli
-  java: 21
   authors:
     - Seqera
   license: Apache-2.0
   extraProperties:
     inceptionYear: 2023
-
+  java:
+    groupId: io.seqera.wave.cli
+    version: 21
 release:
   github:
     overwrite: true
