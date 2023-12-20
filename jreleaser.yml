@@ -81,13 +81,13 @@ distributions:
       name: wave
     artifacts:
       - path: "nativeCompile-ubuntu-latest/wave"
-        transform: "wave-{{projectEffectiveVersion}}-macos-arm64"
-        platform: osx-aarch_64
+        transform: "wave-{{projectEffectiveVersion}}-linux-x86_64"
+        platform: linux-x86_64
         extraProperties:
           graalVMNativeImage: true
       - path: "nativeCompile-windows-latest/wave.exe"
-        transform: "wave-{{projectEffectiveVersion}}-windows-x86_64.exe"
-        platform: windows-x86_64
+        transform: "wave-{{projectEffectiveVersion}}-macos-arm64"
+        platform: osx-aarch_64
         extraProperties:
           graalVMNativeImage: true
       - path: "nativeCompile-macos-latest/wave"
