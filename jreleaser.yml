@@ -76,7 +76,7 @@ release:
 
 distributions:
   wave-cli:
-    type: BINARY
+    type: FLAT_BINARY
     executable:
       name: wave
     artifacts:
@@ -97,7 +97,7 @@ distributions:
           graalVMNativeImage: true
 
   wave-cli-jar:
-    type: JAVA_BINARY
+    type: SINGLE_JAR
     artifacts:
       - path: "wave_jar/wave.jar"
         transform: "wave-{{projectEffectiveVersion}}.jar"
