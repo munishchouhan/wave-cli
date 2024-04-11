@@ -80,17 +80,17 @@ distributions:
     executable:
       name: wave
     artifacts:
-      - path: "nativeCompile-ubuntu-latest/nativeCompile-ubuntu-latest.zip"
+      - path: "nativeCompile-ubuntu-latest/wave"
         transform: "wave-{{projectEffectiveVersion}}-linux-x86_64"
         platform: linux-x86_64
         extraProperties:
           graalVMNativeImage: true
-      - path: "nativeCompile-windows-latest/nativeCompile-windows-latest.zip"
-        transform: "wave-{{projectEffectiveVersion}}-macos-arm64.exe"
+      - path: "nativeCompile-windows-latest/wave.exe"
+        transform: "wave-{{projectEffectiveVersion}}-macos-arm64"
         platform: osx-aarch_64
         extraProperties:
           graalVMNativeImage: true
-      - path: "nativeCompile-macos-latest/nativeCompile-macos-latest.zip"
+      - path: "nativeCompile-macos-latest/wave"
         transform: "wave-{{projectEffectiveVersion}}-macos-x86_64"
         platform: osx-x86_64
         extraProperties:
@@ -99,7 +99,7 @@ distributions:
   wave-cli-jar:
     type: SINGLE_JAR
     artifacts:
-      - path: "wave_jar/wave_jar.zip"
+      - path: "wave_jar/wave.jar"
         transform: "wave-{{projectEffectiveVersion}}.jar"
 
 packagers:
