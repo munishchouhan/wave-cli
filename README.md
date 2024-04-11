@@ -17,6 +17,21 @@ that it can be used in your Docker (replace-with-your-own-fav-container-engine) 
 * Build Singularity native containers both using a Singularity spec file, Conda package(s) and Spack package(s);
 * Push Singularity native container images to OCI-compliant registries;
   
+### Installation 
+
+
+#### Binary download 
+
+Download the Wave pre-compiled binary for your operating system from the 
+[GitHub releases page](https://github.com/seqeralabs/wave-cli/releases/latest) and give execute permission to it.
+
+#### Homebrew (Linux and macOS)
+
+If you use [Homebrew](https://brew.sh/), you can install like this:
+
+```bash
+ brew install seqeralabs/tap/wave-cli
+```
 
 ### Get started
 
@@ -150,16 +165,16 @@ singularity exec $container bamtools --version
 
 ### Development
 
-1. Install GraalVM-Java 20.0.2
+1. Install GraalVM-Java 21.0.1
 
     ```bash
-    sdk install java 20.0.2-graal
+    sdk install java 21.0.1-graal
     ```
 
     or if it's already installed
 
    ```bash
-   sdk use java 20.0.2-graal
+   sdk use java 21.0.1-graal
    ```
 
 2. Compile & run tests 

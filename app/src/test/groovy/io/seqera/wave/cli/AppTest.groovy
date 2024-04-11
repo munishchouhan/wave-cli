@@ -17,12 +17,17 @@
 
 package io.seqera.wave.cli
 
+import io.seqera.wave.cli.util.DurationConverter
+
 import java.nio.file.Files
+import java.time.Duration
 import java.time.Instant
 
 import io.seqera.wave.api.SubmitContainerTokenResponse
-import io.seqera.wave.util.TarUtils
 import io.seqera.wave.cli.exception.IllegalCliArgumentException
+import io.seqera.wave.cli.model.ContainerInspectResponseEx
+import io.seqera.wave.core.spec.ContainerSpec
+import io.seqera.wave.util.TarUtils
 import picocli.CommandLine
 import spock.lang.Specification
 import spock.lang.Unroll
@@ -57,7 +62,8 @@ class AppTest extends Specification {
                 targetImage: 'docker.io/some/repo',
                 containerImage: 'docker.io/some/container',
                 expiration: Instant.ofEpochMilli(1691839913),
-                buildId: '98765'
+                buildId: '98765',
+                cached: true
         )
 
         when:
@@ -66,9 +72,11 @@ class AppTest extends Specification {
         then:
         result == '''\
             buildId: '98765'
+            cached: true
             containerImage: docker.io/some/container
             containerToken: '12345'
             expiration: '1970-01-20T13:57:19.913Z'
+            freeze: null
             targetImage: docker.io/some/repo
             '''.stripIndent(true)
     }
@@ -91,6 +99,43 @@ class AppTest extends Specification {
         def result = app.dumpOutput(resp)
         then:
         result == '{"buildId":"98765","containerImage":"docker.io/some/container","containerToken":"12345","expiration":"1970-01-20T13:57:19.913Z","targetImage":"docker.io/some/repo"}'
+    }
+
+    def 'should dump inspect to json' () {
+        given:
+        def app = new App()
+        String[] args = ["--output", "json"]
+        and:
+        def resp = new ContainerInspectResponseEx( new ContainerSpec('docker.io', 'https://docker.io', 'busybox', 'latest', 'sha:12345', null, null) )
+
+        when:
+        new CommandLine(app).parseArgs(args)
+        def result = app.dumpOutput(resp)
+        then:
+        result == '{"container":{"digest":"sha:12345","hostName":"https://docker.io","imageName":"busybox","reference":"latest","registry":"docker.io"}}'
+    }
+
+    def 'should dump inspect to yaml' () {
+        given:
+        def app = new App()
+        String[] args = ["--output", "yaml"]
+        and:
+        def resp = new ContainerInspectResponseEx( new ContainerSpec('docker.io', 'https://docker.io', 'busybox', 'latest', 'sha:12345', null, null) )
+
+        when:
+        new CommandLine(app).parseArgs(args)
+        def result = app.dumpOutput(resp)
+        then:
+        result == '''\
+            container:
+              config: null
+              digest: sha:12345
+              hostName: https://docker.io
+              imageName: busybox
+              manifest: null
+              reference: latest
+              registry: docker.io
+            '''.stripIndent()
     }
 
     def 'should prepare context' () {
@@ -150,7 +195,9 @@ class AppTest extends Specification {
         String[] args = ["-i", "ubuntu:latest","--dry-run", '--await']
 
         when:
-        new CommandLine(app).parseArgs(args)
+        def cli = new CommandLine(app)
+        cli.registerConverter(Duration.class, new DurationConverter())
+        cli.parseArgs(args)
         and:
         app.validateArgs()
         then:
@@ -229,6 +276,68 @@ class AppTest extends Specification {
         app.@freeze
         app.@buildRepository == 'docker.io/foo'
         app.@towerToken == 'xyz'
+    }
+
+    def 'should get the correct await duration in minutes'(){
+        given:
+        def app = new App()
+        String[] args = ["-i", "ubuntu:latest", '--await', '10m']
+
+        when:
+        def cli = new CommandLine(app)
+        cli.registerConverter(Duration.class, new DurationConverter())
+        cli.parseArgs(args)
+        and:
+        app.validateArgs()
+        then:
+        noExceptionThrown()
+        and:
+        app.@await == Duration.ofMinutes(10)
+    }
+
+    def 'should get the correct await duration in seconds'(){
+        given:
+        def app = new App()
+        String[] args = ["-i", "ubuntu:latest", '--await', '10s']
+
+        when:
+        def cli = new CommandLine(app)
+        cli.registerConverter(Duration.class, new DurationConverter())
+        cli.parseArgs(args)
+        and:
+        app.validateArgs()
+        then:
+        noExceptionThrown()
+        and:
+        app.@await == Duration.ofSeconds(10)
+    }
+
+    def 'should get the default await duration'(){
+        given:
+        def app = new App()
+        String[] args = ["-i", "ubuntu:latest", '--await']
+
+        when:
+        def cli = new CommandLine(app)
+        cli.registerConverter(Duration.class, new DurationConverter())
+        cli.parseArgs(args)
+        and:
+        app.validateArgs()
+        then:
+        noExceptionThrown()
+        and:
+        app.@await == Duration.ofMinutes(15)
+    }
+    
+    def 'should generate a container' () {
+        given:
+        def app = new App()
+        String[] args = [ 'Get a docker container']
+
+        when:
+        new CommandLine(app).parseArgs(args)
+        then:
+        app.prompt == ['Get a docker container']
     }
 
 }

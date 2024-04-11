@@ -30,26 +30,35 @@ import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import io.seqera.wave.api.BuildContext;
 import io.seqera.wave.api.ContainerConfig;
+import io.seqera.wave.api.ContainerInspectRequest;
+import io.seqera.wave.api.ContainerInspectResponse;
 import io.seqera.wave.api.ContainerLayer;
+import io.seqera.wave.api.PackagesSpec;
 import io.seqera.wave.api.ServiceInfo;
 import io.seqera.wave.api.SubmitContainerTokenRequest;
 import io.seqera.wave.api.SubmitContainerTokenResponse;
 import io.seqera.wave.cli.exception.BadClientResponseException;
+import io.seqera.wave.cli.exception.ClientConnectionException;
 import io.seqera.wave.cli.exception.IllegalCliArgumentException;
 import io.seqera.wave.cli.json.JsonHelper;
+import io.seqera.wave.cli.model.ContainerInspectResponseEx;
+import io.seqera.wave.cli.model.ContainerSpecEx;
 import io.seqera.wave.cli.util.BuildInfo;
 import io.seqera.wave.cli.util.CliVersionProvider;
+import io.seqera.wave.cli.util.DurationConverter;
+import io.seqera.wave.cli.util.GptHelper;
 import io.seqera.wave.cli.util.YamlHelper;
 import io.seqera.wave.config.CondaOpts;
 import io.seqera.wave.config.SpackOpts;
@@ -59,16 +68,7 @@ import org.slf4j.LoggerFactory;
 import picocli.CommandLine;
 import static io.seqera.wave.cli.util.Checkers.isEmpty;
 import static io.seqera.wave.cli.util.Checkers.isEnvVar;
-import static io.seqera.wave.util.DockerHelper.addPackagesToSpackFile;
-import static io.seqera.wave.util.DockerHelper.condaFileFromPackages;
-import static io.seqera.wave.util.DockerHelper.condaFileFromPath;
-import static io.seqera.wave.util.DockerHelper.condaFileToDockerFile;
-import static io.seqera.wave.util.DockerHelper.condaFileToSingularityFile;
-import static io.seqera.wave.util.DockerHelper.condaPackagesToDockerFile;
-import static io.seqera.wave.util.DockerHelper.condaPackagesToSingularityFile;
-import static io.seqera.wave.util.DockerHelper.spackFileToDockerFile;
-import static io.seqera.wave.util.DockerHelper.spackFileToSingularityFile;
-import static io.seqera.wave.util.DockerHelper.spackPackagesToSpackFile;
+import static io.seqera.wave.cli.util.StreamHelper.tryReadStdin;
 import static picocli.CommandLine.Command;
 import static picocli.CommandLine.Option;
 
@@ -85,7 +85,7 @@ public class App implements Runnable {
     private static final org.slf4j.Logger log = LoggerFactory.getLogger(App.class);
 
     private static final boolean isWindows = System.getProperty("os.name").toLowerCase().contains("windows");
-    private static final String DEFAULT_TOWER_ENDPOINT = "https://api.tower.nf";
+    private static final String DEFAULT_TOWER_ENDPOINT = "https://api.cloud.seqera.io";
 
     private static final List<String> VALID_PLATFORMS = List.of("amd64", "x86_64", "linux/amd64", "linux/x86_64", "arm64", "linux/arm64");
 
@@ -100,7 +100,7 @@ public class App implements Runnable {
     @Option(names = {"--tower-token"}, paramLabel = "''", description = "Tower service access token.")
     private String towerToken;
 
-    @Option(names = {"--tower-endpoint"}, paramLabel = "''", description = "Tower service endpoint e.g. https://api.tower.nf.")
+    @Option(names = {"--tower-endpoint"}, paramLabel = "''", description = "Tower service endpoint e.g. https://api.cloud.seqera.io.")
     private String towerEndpoint;
 
     @Option(names = {"--tower-workspace-id"}, paramLabel = "''", description = "Tower service workspace ID e.g. 1234567890.")
@@ -121,8 +121,8 @@ public class App implements Runnable {
     @Option(names = {"--platform"}, paramLabel = "''", description = "Platform to be used for the container build. One of: linux/amd64, linux/arm64.")
     private String platform;
 
-    @Option(names = {"--await"}, paramLabel = "false",  description = "Await the container build to be available.")
-    private boolean await;
+    @Option(names = {"--await"}, paramLabel = "false", arity = "0..1", description = "Await the container build to be available. you can provide a timeout like --await 10m or 2s, by default its 15 minutes.")
+    private Duration await;
 
     @Option(names = {"--context"}, paramLabel = "''",  description = "Directory path where the build context is stored e.g. /some/context/path.")
     private String contextDir;
@@ -181,6 +181,9 @@ public class App implements Runnable {
     @Option(names = {"--dry-run"}, paramLabel = "false", description = "Simulate a request switching off the build container images")
     private boolean dryRun;
 
+    @Option(names = {"--preserve-timestamp"}, paramLabel = "false", description = "Preserve timestamp of files in the build context and layers created by Wave")
+    private boolean preserveTimestamp;
+
     @Option(names = {"--info"}, paramLabel = "false", description = "Show Wave client & service information")
     private boolean info;
 
@@ -188,10 +191,33 @@ public class App implements Runnable {
 
     private ContainerConfig containerConfig;
 
+    @Option(names = {"--inspect"}, paramLabel = "false", description = "Inspect specified container image")
+    private boolean inspect;
+
+    @Option(names = {"--include"}, paramLabel = "false", description = "Include one or more containers in the specified base image")
+    private List<String> includes;
+
+    @CommandLine.Parameters
+    List<String> prompt;
+
+    static private String[] makeArgs(String[] args) {
+        String stdin = tryReadStdin();
+        if( stdin==null )
+            return args;
+
+        List<String> result = new ArrayList<>(Arrays.asList(args));
+        result.add("--");
+        result.add(stdin);
+        return result.toArray(new String[args.length+2]);
+    }
+
     public static void main(String[] args) {
         try {
             final App app = new App();
             final CommandLine cli = new CommandLine(app);
+
+            //register duration converter
+            cli.registerConverter(Duration.class, new DurationConverter());
 
             // add examples in help
             cli
@@ -199,7 +225,7 @@ public class App implements Runnable {
                 .usageMessage()
                 .footer(readExamples("usage-examples.txt"));
 
-            final CommandLine.ParseResult result = cli.parseArgs(args);
+            final CommandLine.ParseResult result = cli.parseArgs(makeArgs(args));
             if( result.matchedArgs().size()==0 || result.isUsageHelpRequested() ) {
                 cli.usage(System.out);
             }
@@ -213,11 +239,15 @@ public class App implements Runnable {
             if( app.info ) {
                 app.printInfo();
             }
+            else if( app.inspect ) {
+                app.inspect();
+            }
             else {
                 app.run();
             }
         }
-        catch (IllegalCliArgumentException | CommandLine.ParameterException | BadClientResponseException e) {
+        catch (IllegalCliArgumentException | CommandLine.ParameterException | BadClientResponseException |
+               ClientConnectionException e) {
             System.err.println(e.getMessage());
             System.exit(1);
         }
@@ -277,7 +307,7 @@ public class App implements Runnable {
         if( !isEmpty(image) && !isEmpty(containerFile) )
             throw new IllegalCliArgumentException("Argument --image and --containerfile conflict each other - Specify an image name or a container file for the container to be provisioned");
 
-        if( isEmpty(image) && isEmpty(containerFile) && isEmpty(condaFile) && condaPackages==null  && isEmpty(spackFile) && spackPackages ==null  )
+        if( isEmpty(image) && isEmpty(containerFile) && isEmpty(condaFile) && condaPackages==null  && isEmpty(spackFile) && spackPackages==null && isEmpty(prompt) )
             throw new IllegalCliArgumentException("Provide either a image name or a container file for the Wave container to be provisioned");
 
         if( freeze && isEmpty(buildRepository) )
@@ -360,7 +390,7 @@ public class App implements Runnable {
                 throw new IllegalCliArgumentException("Context path is not a directory - offending value: " + contextDir);
         }
 
-        if( dryRun && await)
+        if( dryRun && await != null )
             throw new IllegalCliArgumentException("Options --dry-run and --await conflicts each other");
 
         if( !isEmpty(platform) && !VALID_PLATFORMS.contains(platform) )
@@ -376,8 +406,7 @@ public class App implements Runnable {
         return new SubmitContainerTokenRequest()
                 .withContainerImage(image)
                 .withContainerFile(containerFileBase64())
-                .withCondaFile(condaFileBase64())
-                .withSpackFile(spackFileBase64())
+                .withPackages(packagesSpec())
                 .withContainerPlatform(platform)
                 .withTimestamp(OffsetDateTime.now())
                 .withBuildRepository(buildRepository)
@@ -390,7 +419,22 @@ public class App implements Runnable {
                 .withFormat( singularity ? "sif" : null )
                 .withFreezeMode(freeze)
                 .withDryRun(dryRun)
+                .withContainerIncludes(includes)
                 ;
+    }
+
+    public void inspect() {
+        final Client client = client();
+        final ContainerInspectRequest req = new ContainerInspectRequest()
+                .withContainerImage(image)
+                .withTowerAccessToken(towerToken)
+                .withTowerWorkspaceId(towerWorkspaceId)
+                .withTowerEndpoint(towerEndpoint)
+                ;
+
+        final ContainerInspectResponse resp = client.inspect(req);
+        final ContainerSpecEx spec = new ContainerSpecEx(resp.getContainer());
+        System.out.println(dumpOutput(new ContainerInspectResponseEx(spec)));
     }
 
     @Override
@@ -407,8 +451,8 @@ public class App implements Runnable {
         // submit it
         SubmitContainerTokenResponse resp = client.submit(request);
         // await build to be completed
-        if( await )
-            client.awaitImage(resp.targetImage);
+        if( await != null && resp.buildId!=null && !resp.cached )
+            client.awaitCompletion(resp.buildId, await);
         // print the wave container name
         System.out.println(dumpOutput(resp));
     }
@@ -458,7 +502,9 @@ public class App implements Runnable {
             final DockerIgnoreFilter filter = Files.exists(dockerIgnorePath)
                     ? DockerIgnoreFilter.fromFile(dockerIgnorePath)
                     : null;
-            final Packer packer = new Packer().withFilter(filter);
+            final Packer packer = new Packer()
+                            .withFilter(filter)
+                            .withPreserveFileTimestamp(preserveTimestamp);
             result = BuildContext.of(packer.layer(Path.of(contextDir)));
         }
         catch (IOException e) {
@@ -508,7 +554,10 @@ public class App implements Runnable {
             if( !Files.isDirectory(loc) ) throw new IllegalCliArgumentException("Not a valid container layer directory - offering path: "+loc);
             ContainerLayer layer;
             try {
-                result.layers.add( layer=new Packer().layer(loc) );
+                layer = new Packer()
+                        .withPreserveFileTimestamp(preserveTimestamp)
+                        .layer(loc);
+                result.layers.add(layer);
             }
             catch (IOException e ) {
                 throw new RuntimeException("Unexpected error while packing container layer at path: " + loc, e);
@@ -516,6 +565,7 @@ public class App implements Runnable {
             if( layer.gzipSize > _1MB )
                 throw new RuntimeException("Container layer cannot be bigger of 1 MiB - offending path: " + loc);
         }
+
         // check all size
         long size = 0;
         for(ContainerLayer it : result.layers ) {
@@ -529,72 +579,70 @@ public class App implements Runnable {
         return !result.empty() ? result : null;
     }
 
+    private ContainerInspectRequest inspectRequest(String image) {
+        return new ContainerInspectRequest()
+                .withContainerImage(image)
+                .withTowerEndpoint(towerEndpoint)
+                .withTowerAccessToken(towerToken)
+                .withTowerWorkspaceId(towerWorkspaceId);
+    }
+
     private CondaOpts condaOpts() {
         return new CondaOpts()
                 .withMambaImage(condaBaseImage)
-                .withCommands(condaRunCommands);
+                .withCommands(condaRunCommands)
+                ;
+    }
+
+    private SpackOpts spackOpts() {
+        return new SpackOpts()
+                .withCommands(spackRunCommands);
     }
 
     protected String containerFileBase64() {
-        if( !isEmpty(containerFile) ) {
-            return encodePathBase64(containerFile);
+        return !isEmpty(containerFile)
+                ? encodePathBase64(containerFile)
+                : null;
+    }
+
+    protected PackagesSpec packagesSpec() {
+        if( !isEmpty(condaFile) ) {
+            return new PackagesSpec()
+                    .withType(PackagesSpec.Type.CONDA)
+                    .withCondaOpts(condaOpts())
+                    .withEnvironment(encodePathBase64(condaFile))
+                    .withChannels(condaChannels())
+                    ;
         }
 
-        if (!isEmpty(condaFile) || !isEmpty(condaPackages)) {
-            String result;
-            final String lock = condaLock();
-            if (!isEmpty(lock)) {
-                result = singularity
-                        ? condaPackagesToSingularityFile(lock, condaChannels(), condaOpts())
-                        : condaPackagesToDockerFile(lock, condaChannels(), condaOpts());
-            } else {
-                result = singularity
-                        ? condaFileToSingularityFile(condaOpts())
-                        : condaFileToDockerFile(condaOpts());
-            }
-            return encodeStringBase64(result);
+        if( !isEmpty(condaPackages) ) {
+            return new PackagesSpec()
+                    .withType(PackagesSpec.Type.CONDA)
+                    .withCondaOpts(condaOpts())
+                    .withEntries(condaPackages)
+                    .withChannels(condaChannels())
+                    ;
         }
 
-        if( !isEmpty(spackFile) || spackPackages!=null ) {
-            final SpackOpts opts = new SpackOpts() .withCommands(spackRunCommands);
-            final String result = singularity
-                        ? spackFileToSingularityFile(opts)
-                        : spackFileToDockerFile(opts);
-            return encodeStringBase64(result);
+        if( !isEmpty(spackFile) ) {
+            return new PackagesSpec()
+                    .withType(PackagesSpec.Type.SPACK)
+                    .withSpackOpts(spackOpts())
+                    .withEnvironment(encodePathBase64(spackFile));
+        }
+
+        if( !isEmpty(spackPackages) ) {
+            return new PackagesSpec()
+                    .withType(PackagesSpec.Type.SPACK)
+                    .withSpackOpts(spackOpts())
+                    .withEntries(spackPackages);
+        }
+
+        if( !isEmpty(prompt) ) {
+            return GptHelper.grabPackages(prompt.stream().collect(Collectors.joining(" ")));
         }
 
         return null;
-    }
-
-    protected String condaFileBase64() {
-        if (!isEmpty(condaFile)) {
-            // parse the attribute as a conda file path *and* append the base packages if any
-            // note 'channel' is null, because they are expected to be provided in the conda file
-            final Path path = condaFileFromPath(condaFile, null);
-            return path != null ? encodePathBase64(path.toString()) : null;
-        }
-        else if (!isEmpty(condaPackages) && isEmpty(condaLock())) {
-            // create a minimal conda file with package spec from user input
-            final String packages = condaPackages.stream().collect(Collectors.joining(" "));
-            final Path path = condaFileFromPackages(packages, condaChannels());
-            return path != null ? encodePathBase64(path.toString()) : null;
-        }
-        else
-            return null;
-    }
-
-    protected String spackFileBase64() {
-        if( !isEmpty(spackFile) ) {
-            // parse the attribute as a spack file path *and* append the base packages if any
-            return encodePathBase64(addPackagesToSpackFile(spackFile, new SpackOpts()).toString());
-        }
-        else if( spackPackages!=null && spackPackages.size()>0  ) {
-            // create a minimal spack file with package spec from user input
-            final String packages = spackPackages.stream().collect(Collectors.joining(" "));
-            return encodePathBase64(spackPackagesToSpackFile(packages, new SpackOpts()).toString());
-        }
-        else
-            return null;
     }
 
     protected String dumpOutput(SubmitContainerTokenResponse resp) {
@@ -607,9 +655,17 @@ public class App implements Runnable {
         if( outputFormat!=null )
             throw new IllegalArgumentException("Unexpected output format: "+outputFormat);
 
-        return freeze
-                ? resp.containerImage
-                : resp.targetImage;
+        return resp.targetImage;
+    }
+
+    protected String dumpOutput(ContainerInspectResponseEx resp) {
+        if( "json".equals(outputFormat) || outputFormat==null ) {
+            return JsonHelper.toJson(resp);
+        }
+        if( "yaml".equals(outputFormat) ) {
+            return YamlHelper.toYaml(resp);
+        }
+        throw new IllegalArgumentException("Unexpected output format: "+outputFormat);
     }
 
     protected ContainerConfig readConfig(String path) {
@@ -640,21 +696,6 @@ public class App implements Runnable {
                 .map(String::trim)
                 .filter(it -> !isEmpty(it))
                 .collect(Collectors.toList());
-    }
-
-    protected String condaLock() {
-        if( isEmpty(condaPackages) )
-            return null;
-        Optional<String> result = condaPackages
-                .stream()
-                .filter(it->it.startsWith("http://") || it.startsWith("https://"))
-                .findFirst();
-        if( !result.isPresent() )
-            return null;
-        if( condaPackages.size()!=1 ) {
-            throw new IllegalCliArgumentException("No more than one Conda lock remote file can be specified at the same time");
-        }
-        return result.get();
     }
 
     void printInfo() {
