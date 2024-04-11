@@ -62,7 +62,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: wave_jar
-          path: ./app/build/libs/wave.jar
+          path: ./app/build/libs
 
       - name: Build static native
         if: ${{ matrix.musl }}
