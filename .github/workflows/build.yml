@@ -59,7 +59,7 @@ jobs:
 
       - name: Upload fat JAR artifact
         if: ${{ matrix.fatjar }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: wave_jar
           path: ./app/build/libs/wave.jar
