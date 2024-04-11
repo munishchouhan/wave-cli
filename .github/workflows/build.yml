@@ -78,7 +78,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: nativeCompile-${{ matrix.os }}
-          path: ./app/build/native/nativeCompile/wave
+          path: ./app/build/native/nativeCompile
 
       - name: Publish tests report
         if: failure()
