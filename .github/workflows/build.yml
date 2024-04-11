@@ -59,7 +59,7 @@ jobs:
 
       - name: Upload fat JAR artifact
         if: ${{ matrix.fatjar }}
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: wave_jar
           path: ./app/build/libs/wave.jar
@@ -75,7 +75,7 @@ jobs:
         run: ./gradlew app:nativeCompile
 
       - name: Upload Binary
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: nativeCompile-${{ matrix.os }}
           path: ./app/build/native/nativeCompile
