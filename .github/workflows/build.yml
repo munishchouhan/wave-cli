@@ -20,12 +20,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest-large, windows-latest]
+        os: [ubuntu-latest, windows-latest]
         include:
           - os: ubuntu-latest
             fatjar: true
             musl: true
-          - os: macos-latest-large
     steps:
       - name: Environment
         run: env | sort
