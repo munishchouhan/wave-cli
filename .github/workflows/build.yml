@@ -20,7 +20,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest-large, macos-latest-xlarge, windows-latest]
+        os: [ubuntu-latest, macos-latest-large, windows-latest]
         include:
           - os: ubuntu-latest
             fatjar: true
